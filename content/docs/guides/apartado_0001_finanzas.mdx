@@ -1,0 +1,92 @@
+---
+title: Apartado 0001 - Finanzas
+description: Especificaciones técnicas, retención de comprobantes, esquema de base de datos y cifrado a nivel de middleware para la arquitectura financiera de CuerpoHermoso Web.
+---
+
+# Apartado 0001: Finanzas
+
+Este documento detalla las especificaciones técnicas, reglas de negocio y medidas de seguridad del módulo financiero de **CuerpoHermoso Web**. El objetivo principal de este apartado es garantizar la trazabilidad operacional, automatizar el control estricto de accesos a consultas y proteger la información legal y bancaria del negocio.
+
+---
+
+## §1 Almacenamiento y Retención de Comprobantes (Decisión D1)
+
+Para mantener la integridad operativa y garantizar el cumplimiento normativo en materia de privacidad de datos, la gestión de comprobantes de pago digitales se rige por la **Decisión D1**.
+
+* **Almacenamiento en Blob Storage:** Todos los recibos, capturas de transferencias y soportes adjuntos son procesados y alojados mediante almacenamiento [Vercel Blob](https://vercel.com/docs/storage/vercel-blob).
+* **Política de Retención (30 Días):** Los archivos digitales asociados a una transacción deben ser eliminados de manera permanente una vez transcurridos **30 días** posteriores a la fecha en la que la evaluación médica o sesión de telemedicina haya sido ejecutada de forma satisfactoria.
+
+### §1.1 Servicio de Depuración Automática (`clearReceiptServicesRendered`)
+
+Para automatizar este flujo, se integra un servicio en segundo plano (*worker* / *cron job*) encargado de auditar periódicamente los registros y limpiar el almacenamiento en Blob Storage.
+
+```typescript
+// src/lib/actions/clearReceiptServicesRendered.ts
+import { db } from "@/src/db";
+import { del } from "@vercel/blob";
+
+export async function clearReceiptServicesRendered() {
+  // 1. Consultar evaluaciones realizadas con antigüedad > 30 días
+  // 2. Eliminar referencias de archivos en Vercel Blob
+  // 3. Actualizar estado del registro en la base de datos
+}
+```
+
+---
+
+## §2 Esquema de Tablas Financieras
+
+El modelo de datos financiero implementado en Drizzle ORM ([`src/db/schema.ts`](../src/db/schema.ts)) condiciona la habilitación de servicios (como la entrega de enlaces de telemedicina) a la aprobación explícita de un pago por parte del Departamento Financiero.
+
+### §2.1 Atributos Principales de la Transacción
+
+| Campo | Tipo de Dato | Descripción |
+| :--- | :--- | :--- |
+| `uuid` | `UUID` | Identificador único universal de la transacción financiera. |
+| `payDate` | `Timestamp` | Fecha y hora exacta de registro del pago por el usuario. |
+| `requestDay` | `Timestamp` | Fecha programada para la cita médica o prestación del servicio. |
+| `validationCorrectly` | `Boolean` | Aprobación emitida exclusivamente por el departamento financiero. |
+
+---
+
+## §3 Control de Acceso y Restricción de Videollamadas (Google Meet)
+
+Con el fin de mitigar riesgos operativos y evitar la atención de pacientes con transacciones pendientes o no verificadas:
+
+* **Restricción en Interfaz:** El botón de acción o envío de Google Meet ([`src/components/appointments/CopyMeetButton.tsx`](../src/components/appointments/CopyMeetButton.tsx)) permanecerá deshabilitado hasta que `validationCorrectly` sea evaluado como `true`.
+* **Protección en API/Backend:** La acción encarga de despachar la información de la cita rechazará cualquier solicitud si la transacción financiera vinculada no cuenta con la correspondiente verificación.
+
+---
+
+## §4 Encriptación de Datos de Pagadores (Decisión Finanzas-D1-0003)
+
+Para blindar legalmente la procedencia de los fondos y cumplir con los estándares de seguridad sin exponer información confidencial en infraestructura alojada en el extranjero, se implementa la **Decisión Finanzas-D1-0003**.
+
+### §4.1 Cifrado a Nivel de Middleware
+
+* **Protección de Datos Sensibles:** Los identificadores bancarios y de contacto son encriptados en la capa del *middleware* antes de persistir en la base de datos externa.
+* **Descifrado Restringido (`role=admin`):** Los campos cifrados solo son desencriptados de manera dinámica cuando las peticiones provienen del panel de administración y son realizadas por un usuario con rol verificado `role=admin`.
+
+### §4.2 Estructura de la Tabla `payers`
+
+La entidad `payers` mantiene una relación **1:N** con las transacciones financieras (un pagador puede registrar múltiples pagos a lo largo del tiempo).
+
+| Columna en Base de Datos | Nombre Anterior | Tipo de Dato | Política de Cifrado |
+| :--- | :--- | :--- | :--- |
+| `id` | - | `UUID` / `Serial` | Texto plano (PK) |
+| `identificationNumber` | `numeroIdentificacion` | `Text` | **Cifrado en Middleware** |
+| `senderPhone` | `telefonoQuienEnvia` | `Text` | **Cifrado en Middleware** |
+| `senderBank` | `bancoQuienEnvíaFondos` | `Text` | **Cifrado en Middleware** |
+
+---
+
+## §5 Referencias y Módulos Relacionados
+
+Para consultar o extender las funciones descritas en este apartado, refiérase a los siguientes componentes del proyecto:
+
+* **Esquema de Base de Datos:** [`src/db/schema.ts`](../src/db/schema.ts)
+* **Utilidades Financieras:** [`src/lib/utils/finance.ts`](../src/lib/utils/finance.ts)
+* **Acciones de Citas / Meet:** [`src/features/appointments/components/MeetActions.tsx`](../src/features/appointments/components/MeetActions.tsx)
+* **Acciones de Presupuesto:** [`src/lib/actions/budget-actions.ts`](../src/lib/actions/budget-actions.ts)
+* **Tabla de Pagos:** [`src/components/finance/PaymentScheduleTable.tsx`](../src/components/finance/PaymentScheduleTable.tsx)
+* **Vista de Pagos de Usuario:** [`src/app/me/payments/page.tsx`](../src/app/me/payments/page.tsx)
