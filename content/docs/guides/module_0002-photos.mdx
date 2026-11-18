@@ -1,0 +1,95 @@
+---
+title: "Apartado 0002: Fotografías"
+description: "Documentación técnica para la gestión de imágenes médicas, almacenamiento en Google Drive API, esquemas Drizzle/Zod y resolución del Bug B-1."
+---
+
+# Apartado 0002: Fotografías
+
+Este apartado especifica la arquitectura y reglas de negocio para la carga, procesamiento, almacenamiento y asociación de fotografías médicas dentro de **CuerpoHermoso Web**.
+
+---
+
+## §1 Estructura de Datos y Almacenamiento
+
+El almacenamiento persistente de las imágenes médicas se gestiona mediante la **Google Drive API** (implementado en [`src/lib/drive.ts`](/src/lib/drive.ts)). Los metadatos de las imágenes y la vinculación con cada paciente se registran en la base de datos PostgreSQL mediante **Drizzle ORM**.
+
+### §1.1 Esquema de Base de Datos (`PatientImage`)
+
+La tabla `PatientImage` (definida en [`src/db/schema.ts`](/src/db/schema.ts)) mantiene la trazabilidad de los archivos cargados en Google Drive y su optimización en thumbnails de baja resolución:
+
+```typescript
+import { pgTable, uuid, text, date, timestamp } from "drizzle-orm/pg-core";
+import { Patient } from "./schema";
+
+export const PatientImage = pgTable("PatientImage", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patientId: uuid("patient_id")
+    .references(() => Patient.id, { onDelete: "cascade" })
+    .notNull(),
+  driveId: text("drive_id").notNull(),          // Archivo Raw de Alta Calidad
+  thumbnailDriveId: text("thumbnail_drive_id"), // Archivo optimizado de baja resolución
+  folderId: text("folder_id"),
+  tag: text("tag"),
+  imageDate: date("image_date").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+```
+
+### §1.2 Esquema de Validación (`uploadPatientPhotoSchema`)
+
+La validación del formulario `FormData` en el servidor se ejecuta mediante **Zod**:
+
+```typescript
+import { z } from "zod";
+
+/**
+ * Esquema estricto para validar la subida de imágenes médicas mediante FormData
+ */
+export const uploadPatientPhotoSchema = z.object({
+  patientId: z.string().uuid("El ID del paciente debe ser un UUID válido"),
+  tag: z.string().min(1, "La etiqueta o categoría es obligatoria").default("consulta"),
+  imageDate: z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato YYYY-MM-DD")
+    .default(() => new Date().toISOString().split("T")[0]),
+  // Validación de archivo robusta para entornos de servidor
+  photo: z.instanceof(File, { message: "Debe proporcionar un archivo válido" })
+    .refine((file) => file.size > 0, "El archivo está vacío")
+    .refine((file) => file.size <= 5 * 1024 * 1024, "El tamaño máximo permitido es de 5MB")
+    .refine(
+      (file) => ["image/jpeg", "image/png", "image/webp"].includes(file.type),
+      "Solo se admiten formatos JPG, PNG y WEBP"
+    ),
+});
+```
+
+---
+
+## §2 Integración con Google Drive API y Nomenclatura de Carpetas
+
+Cada paciente posee un contenedor de carpetas de almacenamiento en Google Drive asociado a su identificador único (`patient_id`).
+
+### §2.1 Regla de Nomenclatura Estándar
+
+La carpeta raíz asignada a las imágenes de un paciente debe seguir estrictamente el patrón:
+
+`FolderName = "PATIENT_" + Patient.id`
+
+Ejemplo: `PATIENT_a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`
+
+---
+
+## §3 Documentación de Incidencias Técnicas: Bug (B-1)
+
+### §3.1 Descripción del Comportamiento (B-1)
+
+Se ha documentado el **Bug (B-1)**, un problema no destructivo en el flujo de creación de carpetas en Google Drive:
+
+* **Efecto:** Al realizar la carga de imágenes, en lugar de reutilizar la carpeta persistente existente bajo el nombre fijo `PATIENT_` + `patient_id`, la integración con Google Drive API genera dinámicamente una nueva carpeta ante cada subida agregando sufijos o variables dinámicas no alineadas con la nomenclatura fija.
+* **Impacto:** No causa pérdida de datos ni corrupción en la base de datos `PatientImage`, pero genera fragmentación de carpetas en el almacenamiento en la nube de Google Drive.
+
+### §3.2 Estrategia de Mitigación y Búsqueda Idiomática
+
+Para prevenir la creación duplicada de carpetas hasta que la corrección definitiva sea desplegada en `src/lib/drive.ts`:
+
+1. Realizar una consulta de búsqueda previa en Google Drive API verificando si ya existe un objeto `mimeType = 'application/vnd.google-apps.folder'` cuyo nombre comience por `PATIENT_` y coincida con el `patient_id`.
+2. Asignar el ID de la carpeta encontrada al campo `folderId` en la inserción de la tabla `PatientImage`.

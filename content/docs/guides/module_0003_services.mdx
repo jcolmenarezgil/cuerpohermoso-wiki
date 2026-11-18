@@ -1,0 +1,77 @@
+---
+title: "Apartado 0003: Servicios"
+description: "Especificaciones del módulo de servicios, ciclo de vida de prestaciones médicas, agenda de telemedicina y relación con el módulo de finanzas (module_0001_finances)."
+---
+
+# Apartado 0003: Servicios
+
+Este apartado especifica la arquitectura del catálogo y ejecución de servicios médicos y estéticos de **CuerpoHermoso Web**, regulando la oferta de consultas virtuales (telemedicina), procedimientos quirúrgicos y tratamientos ambulatorios, así como su estrecha relación con el módulo financiero ([`module_0001_finances.mdx`](./module_0001_finances.mdx)).
+
+---
+
+## §1 Tipología y Catálogo de Servicios
+
+Los servicios en la plataforma se clasifican en función de su naturaleza operativa y modelo de amortización:
+
+1. **Consultas Médicas Online (Telemedicina):** Servicios individuales de evaluación diagnóstica vía videollamada (Google Meet). Requieren liquidación completa previa a la emisión de enlaces.
+2. **Procedimientos Ambulatorios y Tratamientos Estéticos:** Paquetes con sesiones programadas según evolución clínica.
+3. **Procedimientos Quirúrgicos:** Intervenciones mayores que conllevan cotizaciones personalizadas y planes de pago fraccionados por etapas preoperatorias.
+
+---
+
+## §2 Relación con el Módulo de Finanzas (0001)
+
+La interacción entre el dominio de Servicios y el dominio Financiero se rige por las decisiones arquitectónicas estandarizadas (**Finanzas D-0002**, **Finanzas D-0004**, **Finanzas D-0005** y **Servicios D-0001**):
+
+### §2.1 Los Servicios como Activos Financieros
+
+Ningún servicio es aprovisionado sin una contraparte financiera explícita:
+* Cada solicitud de servicio genera un **activo financiero** o compromiso de cobro pendiente.
+* Las políticas financieras impiden recibir pagos que no estén vinculados de forma unívoca a un servicio activo o a una cuota correspondiente.
+* **Bloqueo por Saldo Cero:** Una vez que el saldo pendiente por cubrir del servicio llega a 0.00, no se permite el ingreso de nuevas transacciones sobre dicho activo.
+
+### §2.2 Planes de Pago en Servicios Complejos
+
+Para tratamientos de alto valor o quirúrgicos, el servicio no exige un pago único inmediato, sino que se asocia a un `PaymentPlan`:
+* El plan fracciona el importe en N cuotas (**Finanzas D-0004**).
+* Cada cuota admite pagos parciales hasta completarse.
+* La programación o ejecución de las distintas etapas del servicio médico (ej. consultas prequirúrgicas, reserva de quirófano) está condicionada a la amortización de cuotas específicas preacordadas.
+
+### §2.3 Desacoplamiento de Agenda (`requestDay`)
+
+Conforme a la **Decisión Finanzas D-0005**:
+* Las fechas programadas, duración de citas médicas y reprogramaciones residen exclusivamente en la entidad `Appointment` o `ServiceBooking` del módulo de Servicios.
+* Las transacciones financieras no almacenan fechas de ejecución médica (`requestDay` ha sido retirado de `transactions`). De este modo, una reprogramación de cita no invalida ni altera los comprobantes bancarios verificados.
+
+---
+
+## §3 Control de Acceso Criptográfico a Consultas Online (Google Meet)
+
+Para las consultas virtuales (`consulta-online`), el acceso a la sala de Google Meet está blindado contra manipulación de datos:
+
+* **Verificación Externa:** No se admite una bandera booleana local. La sesión sólo se desbloquea si la transacción financiera vinculada cuenta con la firma criptográfica generada por el proveedor central:
+
+> **Proveedor de Verificación Externa:**  
+> [https://admin-colmenarez-dev.vercel.app](https://admin-colmenarez-dev.vercel.app)
+
+* **Validación en Tiempo de Ejecución:** El componente `MeetActions` y la acción de backend verifican de manera concurrente:
+  1. Firma criptográfica válida emitida por el proveedor de administración.
+  2. Saldo residual del servicio igual a 0.00.
+  3. Cita confirmada en la agenda del especialista.
+
+---
+
+## §4 Matriz de Decisiones Arquitectónicas del Módulo
+
+| Código Estándar | Título de la Decisión | Estado | Impacto Técnico |
+| :--- | :--- | :--- | :--- |
+| **Servicios D-0001** | Desacoplamiento de Agenda Médica y Finanzas | Aprobado | Centralización de fechas de citas en `Appointment` y retiro de dependencia en transacciones. |
+| **Servicios D-0002** | Habilitación Condicionada por Firma Criptográfica | Aprobado | Bloqueo de Google Meet hasta autenticación de firma por `https://admin-colmenarez-dev.vercel.app`. |
+
+---
+
+## §5 Referencias y Módulos Relacionados
+
+* **Módulo de Finanzas:** [`content/docs/guides/module_0001_finances.mdx`](./module_0001_finances.mdx)
+* **Módulo de Fotografías Médicas:** [`content/docs/guides/module_0002-photos.mdx`](./module_0002-photos.mdx)
+* **Proveedor de Verificación:** [https://admin-colmenarez-dev.vercel.app](https://admin-colmenarez-dev.vercel.app)
