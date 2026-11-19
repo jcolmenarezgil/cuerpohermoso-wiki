@@ -16,3 +16,7 @@ Todas las decisiones arquitectónicas, reglas técnicas y acuerdos de diseño de
      * `Finanzas D-0004`: Vinculación obligatoria de pagos a activos/cuotas y planes de pago.
      * `Finanzas D-0005`: Desacoplamiento de fechas de agenda (`requestDay`) de la tabla de transacciones.
      * `Servicios D-0001`: Ciclo de vida y habilitación condicional de servicios médicos.
+     * `Pacientes D-0001`: Estructuración de Contacto de Emergencia en formato JSON mediante etiquetas.
+     * `Pacientes D-0002`: Almacenamiento multi-número telefónico con selección de predeterminado.
+     * `Pacientes D-0003`: Autocompletado multidispositivo de correo electrónico libre de datalist.
+     * `Pacientes D-0004`: Autocompletado clínico inteligente con atajo Tab en Motivo de Consulta.
